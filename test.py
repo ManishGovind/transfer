@@ -93,7 +93,78 @@ frame, ID, x, y, width, height, conf, class, visibility
 - Maintain consistent person IDs across different camera views.
 - Save cropped images with camera-specific labels.
 
+import pandas as pd
+import cv2
+import os
+
+def crop_persons(mot_gt_file, frames_folder, output_folder):
+    os.makedirs(output_folder, exist_ok=True)
+    
+    df = pd.read_csv(mot_gt_file, header=None)
+    df.columns = ['frame', 'ID', 'x', 'y', 'w', 'h', 'conf', 'class', 'visibility']
+    
+    for _, row in df.iterrows():
+        frame_path = os.path.join(frames_folder, f"{int(row['frame']):06d}.jpg")
+        if not os.path.exists(frame_path):
+            continue
+
+        img = cv2.imread(frame_path)
+        x, y, w, h = map(int, [row['x'], row['y'], row['w'], row['h']])
+        person_crop = img[y:y+h, x:x+w]
+
+        person_id = int(row['ID'])
+        frame_id = int(row['frame'])
+        person_folder = os.path.join(output_folder, f"{person_id:04d}")
+        os.makedirs(person_folder, exist_ok=True)
+
+        img_name = f"{frame_id:06d}.jpg"
+        cv2.imwrite(os.path.join(person_folder, img_name), person_crop)
+
+# Example usage
+crop_persons("path/to/mot_gt.txt", "output/frames", "output/persons")
+
+
 ---
+import random
+import shutil
+
+def create_splits(persons_folder, output_folder, train_ratio=0.5, query_ratio=0.2):
+    os.makedirs(output_folder, exist_ok=True)
+    os.makedirs(f"{output_folder}/train", exist_ok=True)
+    os.makedirs(f"{output_folder}/query", exist_ok=True)
+    os.makedirs(f"{output_folder}/gallery", exist_ok=True)
+
+    persons = os.listdir(persons_folder)
+    random.shuffle(persons)
+
+    num_train = int(len(persons) * train_ratio)
+    train_persons = persons[:num_train]
+    test_persons = persons[num_train:]
+
+    for person in train_persons:
+        shutil.move(os.path.join(persons_folder, person), f"{output_folder}/train/{person}")
+
+    for person in test_persons:
+        images = os.listdir(os.path.join(persons_folder, person))
+        random.shuffle(images)
+
+        num_query = int(len(images) * query_ratio)
+        query_images = images[:num_query]
+        gallery_images = images[num_query:]
+
+        os.makedirs(f"{output_folder}/query/{person}", exist_ok=True)
+        os.makedirs(f"{output_folder}/gallery/{person}", exist_ok=True)
+
+        for img in query_images:
+            shutil.move(os.path.join(persons_folder, person, img), f"{output_folder}/query/{person}/{img}")
+
+        for img in gallery_images:
+            shutil.move(os.path.join(persons_folder, person, img), f"{output_folder}/gallery/{person}/{img}")
+
+# Example usage
+create_splits("output/persons", "output/reid_splits")
+
+
 
 ## **Slide 5: Splitting Dataset (Train, Query, Gallery) for Multi-Camera**
 
@@ -151,6 +222,23 @@ def create_splits(persons_folder, output_folder, train_ratio=0.5, query_ratio=0.
 
 ---
 
+import os
+
+def rename_files(root_folder, cam_id=1):
+    for subset in ["train", "query", "gallery"]:
+        subset_path = os.path.join(root_folder, subset)
+        for person in os.listdir(subset_path):
+            person_path = os.path.join(subset_path, person)
+            for img in os.listdir(person_path):
+                frame_index = img.split('.')[0]
+                new_name = f"{person}_{cam_id}_{frame_index}.jpg"
+                os.rename(os.path.join(person_path, img), os.path.join(person_path, new_name))
+
+# Example usage
+rename_files("output/reid_splits")
+
+
+
 ## **Slide 6: Dataset Analysis - Identity & Camera Distribution**
 
 - Check how many images each identity has.
@@ -159,25 +247,29 @@ def create_splits(persons_folder, output_folder, train_ratio=0.5, query_ratio=0.
 
 ### **Code Example:**
 
-```python
+import os
 import matplotlib.pyplot as plt
 
 def dataset_stats(dataset_path):
     subsets = ["train", "query", "gallery"]
     stats = {}
-    
+
     for subset in subsets:
         subset_path = os.path.join(dataset_path, subset)
         person_counts = [len(os.listdir(os.path.join(subset_path, p))) for p in os.listdir(subset_path)]
         stats[subset] = person_counts
+
         plt.hist(person_counts, bins=20, alpha=0.5, label=subset)
-    
+
     plt.xlabel("Number of images per identity")
     plt.ylabel("Count")
     plt.legend()
-    plt.title("Distribution of images per identity and camera presence")
+    plt.title("Distribution of images per identity")
     plt.show()
-```
+
+# Example usage
+dataset_stats("output/reid_splits")
+
 
 ---
 
@@ -189,3 +281,7 @@ def dataset_stats(dataset_path):
 
 
 
+from torchreid import datasets
+
+dataset = datasets.create('market1501', root='output/reid_splits', split_id=0)
+print(dataset)
