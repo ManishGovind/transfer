@@ -285,3 +285,169 @@ from torchreid import datasets
 
 dataset = datasets.create('market1501', root='output/reid_splits', split_id=0)
 print(dataset)
+----------------------------------------
+
+# stats
+import os
+import pandas as pd
+
+# Path to the labels directory
+labels_dir = "path/to/labels"
+
+# Initialize sets and counters
+unique_ids = set()
+total_detections = 0
+
+# Process each MOT label file in the directory
+for label_file in os.listdir(labels_dir):
+    if label_file.endswith(".txt"):  # Ensure processing only text files
+        file_path = os.path.join(labels_dir, label_file)
+        
+        # Load the MOT format file (assuming space/comma-separated values)
+        df = pd.read_csv(file_path, header=None, delim_whitespace=True)
+        
+        # MOT Format: frame, ID, x, y, w, h, conf, class, visibility
+        person_ids = df[1].unique()  # Extract unique person IDs
+        unique_ids.update(person_ids)  # Add to the global set
+        total_detections += len(df)  # Count total bounding boxes
+
+# Print statistics
+print(f"Total Unique Person IDs: {len(unique_ids)}")
+print(f"Total Detections (bounding boxes): {total_detections}")
+
+-----------------------------------------\
+import os
+import pandas as pd
+import numpy as np
+import cv2
+import glob
+
+# Paths (Modify these based on your dataset)
+labels_dir = "path/to/labels"
+videos_dir = "path/to/videos"
+output_screenshots_dir = "output/screenshots"
+
+# Ensure output directory exists
+os.makedirs(output_screenshots_dir, exist_ok=True)
+
+# Initialize dictionaries for statistics
+camera_stats = {}
+person_camera_counts = {}
+
+# Process each MOT label file
+for label_file in os.listdir(labels_dir):
+    if label_file.endswith(".txt"):  
+        camera_id = os.path.splitext(label_file)[0]  # Assuming file name is camera ID
+        file_path = os.path.join(labels_dir, label_file)
+
+        # Read the label file
+        df = pd.read_csv(file_path, header=None, delim_whitespace=True)
+
+        # Extract person IDs and detection counts
+        person_counts = df[1].value_counts().to_dict()  # {person_id: count}
+        unique_person_ids = set(person_counts.keys())
+
+        # Store stats per camera
+        camera_stats[camera_id] = {
+            "unique_person_count": len(unique_person_ids),
+            "total_detections": len(df),
+            "min_detections": min(person_counts.values()),
+            "max_detections": max(person_counts.values()),
+            "mean_detections": np.mean(list(person_counts.values())),
+            "std_detections": np.std(list(person_counts.values())),
+        }
+
+        # Track how many times each person appears across different cameras
+        for person_id in unique_person_ids:
+            if person_id not in person_camera_counts:
+                person_camera_counts[person_id] = set()
+            person_camera_counts[person_id].add(camera_id)
+
+# Compute overall statistics
+num_cameras_per_person = [len(cameras) for cameras in person_camera_counts.values()]
+average_appearances_across_cameras = np.mean(num_cameras_per_person)
+
+# Convert results into a DataFrame for better visualization
+camera_stats_df = pd.DataFrame.from_dict(camera_stats, orient="index")
+print(camera_stats_df)
+
+print(f"\nAverage number of times each ID appears across multiple cameras: {average_appearances_across_cameras}")
+
+# Extract a sample frame for each camera
+video_files = glob.glob(os.path.join(videos_dir, "*.mp4"))  # Adjust extension if needed
+for video_file in video_files:
+    camera_id = os.path.splitext(os.path.basename(video_file))[0]  # Match with label file
+    cap = cv2.VideoCapture(video_file)
+    
+    if cap.isOpened():
+        ret, frame = cap.read()  # Read the first frame
+        if ret:
+            output_path = os.path.join(output_screenshots_dir, f"{camera_id}.jpg")
+            cv2.imwrite(output_path, frame)  # Save the frame as an image
+    
+    cap.release()
+
+print("\nScreenshots saved in:", output_screenshots_dir)
+-------------------------------------------------------------------
+import os
+import pandas as pd
+import numpy as np
+import matplotlib.pyplot as plt
+import seaborn as sns
+
+# Load previously computed camera statistics
+camera_stats_df = pd.DataFrame.from_dict(camera_stats, orient="index")
+
+# Set plot style
+sns.set_style("whitegrid")
+
+# Create output directory for plots
+output_plots_dir = "output/plots"
+os.makedirs(output_plots_dir, exist_ok=True)
+
+### Plot 1: Unique Person IDs per Camera (Bar Chart)
+plt.figure(figsize=(12, 6))
+sns.barplot(x=camera_stats_df.index, y=camera_stats_df["unique_person_count"], palette="viridis")
+plt.xticks(rotation=90)
+plt.xlabel("Camera ID")
+plt.ylabel("Unique Person IDs")
+plt.title("Unique Person Count per Camera")
+plt.savefig(os.path.join(output_plots_dir, "unique_persons_per_camera.png"))
+plt.show()
+
+### Plot 2: Histogram of Total Detections per Camera
+plt.figure(figsize=(10, 5))
+sns.histplot(camera_stats_df["total_detections"], bins=15, kde=True, color="blue")
+plt.xlabel("Total Detections")
+plt.ylabel("Frequency")
+plt.title("Distribution of Total Detections per Camera")
+plt.savefig(os.path.join(output_plots_dir, "detections_histogram.png"))
+plt.show()
+
+### Plot 3: Box Plot of Detections Per Person Across Cameras
+plt.figure(figsize=(10, 5))
+sns.boxplot(data=camera_stats_df[["min_detections", "max_detections", "mean_detections"]])
+plt.xlabel("Detection Statistics")
+plt.ylabel("Number of Detections")
+plt.title("Variation in Detections Per Person Across Cameras")
+plt.savefig(os.path.join(output_plots_dir, "detections_boxplot.png"))
+plt.show()
+
+### Plot 4: Scatter Plot - Unique IDs vs Total Detections per Camera
+plt.figure(figsize=(10, 5))
+sns.scatterplot(x=camera_stats_df["unique_person_count"], y=camera_stats_df["total_detections"], color="red", s=100)
+plt.xlabel("Unique Person IDs")
+plt.ylabel("Total Detections")
+plt.title("Unique IDs vs Total Detections per Camera")
+plt.savefig(os.path.join(output_plots_dir, "scatter_unique_vs_detections.png"))
+plt.show()
+
+### Plot 5: Heatmap of Correlations Between Statistics
+plt.figure(figsize=(8, 6))
+sns.heatmap(camera_stats_df.corr(), annot=True, cmap="coolwarm", linewidths=0.5)
+plt.title("Correlation Heatmap of Camera Statistics")
+plt.savefig(os.path.join(output_plots_dir, "correlation_heatmap.png"))
+plt.show()
+
+print(f"\nPlots saved in: {output_plots_dir}")
+
