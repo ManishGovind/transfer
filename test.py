@@ -271,13 +271,6 @@ def dataset_stats(dataset_path):
 dataset_stats("output/reid_splits")
 
 
----
-
-## **Slide 7-9: Additional Analysis & Conclusion**
-
-- Identity Overlap Across Cameras.
-- Camera Distribution per Identity.
-- Next Steps for Model Training.
 
 
 
@@ -450,4 +443,103 @@ plt.savefig(os.path.join(output_plots_dir, "correlation_heatmap.png"))
 plt.show()
 
 print(f"\nPlots saved in: {output_plots_dir}")
+
+import os
+import pandas as pd
+import matplotlib.pyplot as plt
+import seaborn as sns
+
+# Define paths
+VIDEO_DIR = "dataset/videos"
+LABELS_DIR = "dataset/labels"
+
+# Function to extract camera ID from video filename (assuming unique camera per video)
+def get_camera_id(video_filename):
+    return os.path.splitext(video_filename)[0]  # Remove .mp4 to match label file
+
+# Function to read MOT tracking labels for a given video
+def read_mot_labels(video_file):
+    """
+    Finds and loads the corresponding MOT label file for a given video.
+    Assumes label filename = video filename with .mp4 replaced by .txt.
+    """
+    label_file = os.path.join(LABELS_DIR, get_camera_id(video_file) + ".txt")
+    
+    if not os.path.exists(label_file):
+        print(f"Warning: No label file found for {video_file}")
+        return pd.DataFrame(columns=["Frame Number", "Person ID", "Scene ID", "Camera ID"])
+    
+    data = []
+    with open(label_file, "r") as f:
+        for line in f:
+            parts = line.strip().split(",")
+            if len(parts) >= 3:  # MOT format: frame, id, bbox_x, bbox_y, w, h, conf, class, visibility
+                frame, person_id = int(parts[0]), int(parts[1])
+                data.append([frame, person_id])
+    
+    return pd.DataFrame(data, columns=["Frame Number", "Person ID"])
+
+# Main loop: Process each scene and its videos
+all_data = []
+for scene in os.listdir(VIDEO_DIR):
+    scene_path = os.path.join(VIDEO_DIR, scene)
+    
+    if os.path.isdir(scene_path):  # Ensure it's a directory
+        for video_file in os.listdir(scene_path):
+            if video_file.endswith(".mp4"):
+                camera_id = get_camera_id(video_file)  # Extract camera ID from video filename
+                labels_df = read_mot_labels(video_file)
+
+                if not labels_df.empty:
+                    labels_df["Scene ID"] = scene
+                    labels_df["Camera ID"] = camera_id
+                    all_data.append(labels_df)
+
+# Combine all scenes into a single DataFrame
+df = pd.concat(all_data, ignore_index=True)
+
+# Convert frame numbers to time (assuming 10 FPS)
+df["Time (seconds)"] = df["Frame Number"] / 10
+
+# Compute statistics
+unique_ids_per_scene_camera = df.groupby(["Scene ID", "Camera ID"])["Person ID"].nunique().reset_index()
+unique_ids_per_scene_camera.columns = ["Scene ID", "Camera ID", "Unique Person Count"]
+
+detections_per_scene_camera = df.groupby(["Scene ID", "Camera ID"])["Frame Number"].count().reset_index()
+detections_per_scene_camera.columns = ["Scene ID", "Camera ID", "Total Detections"]
+
+detections_per_person_scene = df.groupby(["Scene ID", "Person ID"])["Frame Number"].count().reset_index()
+detections_per_person_scene.columns = ["Scene ID", "Person ID", "Total Detections"]
+
+# Save statistics to CSV files
+unique_ids_per_scene_camera.to_csv("unique_ids_per_scene_camera.csv", index=False)
+detections_per_scene_camera.to_csv("detections_per_scene_camera.csv", index=False)
+detections_per_person_scene.to_csv("detections_per_person_scene.csv", index=False)
+
+# ---- Visualization ----
+
+# Unique person count per camera (Grouped by scene)
+plt.figure(figsize=(12, 6))
+sns.barplot(x="Camera ID", y="Unique Person Count", hue="Scene ID", data=unique_ids_per_scene_camera, palette="viridis")
+plt.title("Unique Person Count per Camera (Grouped by Scene)")
+plt.xticks(rotation=45)
+plt.legend(title="Scene ID")
+plt.show()
+
+# Total detections per camera (Grouped by scene)
+plt.figure(figsize=(12, 6))
+sns.barplot(x="Camera ID", y="Total Detections", hue="Scene ID", data=detections_per_scene_camera, palette="coolwarm")
+plt.title("Total Detections per Camera (Grouped by Scene)")
+plt.xticks(rotation=45)
+plt.legend(title="Scene ID")
+plt.show()
+
+# Total detections per person (log scale)
+plt.figure(figsize=(12, 6))
+sns.histplot(detections_per_person_scene["Total Detections"], bins=50, kde=True, log_scale=True, color="blue")
+plt.title("Total Detections per Person (Log Scale)")
+plt.xlabel("Detections per Person")
+plt.ylabel("Count")
+plt.show()
+
 
