@@ -542,4 +542,101 @@ plt.xlabel("Detections per Person")
 plt.ylabel("Count")
 plt.show()
 
+-------------
+import os
+import pandas as pd
+import matplotlib.pyplot as plt
+import seaborn as sns
+
+# Define paths
+VIDEO_DIR = "dataset/videos"
+LABELS_DIR = "dataset/labels"
+
+# Function to extract camera ID from video filename
+def get_camera_id(video_filename):
+    return os.path.splitext(video_filename)[0]  # Remove .mp4 to match label file
+
+# Function to read MOT tracking labels for a given video
+def read_mot_labels(video_file):
+    """Finds and loads the corresponding MOT label file for a given video."""
+    label_file = os.path.join(LABELS_DIR, get_camera_id(video_file) + ".txt")
+    
+    if not os.path.exists(label_file):
+        print(f"Warning: No label file found for {video_file}")
+        return pd.DataFrame(columns=["Frame Number", "Person ID"])
+    
+    data = []
+    with open(label_file, "r") as f:
+        for line in f:
+            parts = line.strip().split(",")
+            if len(parts) >= 3:  # MOT format: frame, id, bbox_x, bbox_y, w, h, conf, class, visibility
+                frame, person_id = int(parts[0]), int(parts[1])
+                data.append([frame, person_id])
+    
+    return pd.DataFrame(data, columns=["Frame Number", "Person ID"])
+
+# Process each scene
+scenelist = sorted(os.listdir(VIDEO_DIR), key=lambda x: int(x.split('-')[-1]) if x.split('-')[-1].isdigit() else x)
+
+for scene in  scenelist:
+    scene_path = os.path.join(VIDEO_DIR, scene)
+    
+    if os.path.isdir(scene_path):  # Ensure it's a directory
+        scene_data = []
+        
+        for video_file in os.listdir(scene_path):
+            if video_file.endswith(".mp4"):
+                camera_id = get_camera_id(video_file)  # Extract camera ID
+                labels_df = read_mot_labels(video_file)
+
+                if not labels_df.empty:
+                    labels_df["Scene ID"] = scene
+                    labels_df["Camera ID"] = camera_id
+                    scene_data.append(labels_df)
+        
+        # Combine data for the scene
+        if scene_data:
+            scene_df = pd.concat(scene_data, ignore_index=True)
+
+            # 1️⃣ Compute number of unique person IDs in the scene
+            unique_person_count = scene_df["Person ID"].nunique()
+            print(f"Scene: {scene} | Unique Person IDs: {unique_person_count}")
+
+            # 2️⃣ Bar Chart: Unique Person IDs per Camera
+            unique_ids_per_camera = scene_df.groupby("Camera ID")["Person ID"].nunique().reset_index()
+            unique_ids_per_camera.columns = ["Camera ID", "Unique Person Count"]
+
+            plt.figure(figsize=(10, 5))
+            sns.barplot(x="Camera ID", y="Unique Person Count", data=unique_ids_per_camera, palette="viridis")
+            plt.title(f"Unique Person IDs per Camera - {scene}")
+            plt.xticks(rotation=45)
+            plt.xlabel("Camera ID")
+            plt.ylabel("Unique Person Count")
+            plt.show()
+
+            # 3️⃣ Pie Chart: Unique Person IDs per Camera
+            plt.figure(figsize=(7, 7))
+            plt.pie(unique_ids_per_camera["Unique Person Count"], labels=unique_ids_per_camera["Camera ID"], 
+                    autopct="%1.1f%%", colors=sns.color_palette("viridis", len(unique_ids_per_camera)))
+            plt.title(f"Person ID Distribution Across Cameras - {scene}")
+            plt.show()
+
+            # 4️⃣ Bar Chart: Detections per Camera
+            detections_per_camera = scene_df.groupby("Camera ID")["Frame Number"].count().reset_index()
+            detections_per_camera.columns = ["Camera ID", "Total Detections"]
+
+            plt.figure(figsize=(10, 5))
+            sns.barplot(x="Camera ID", y="Total Detections", data=detections_per_camera, palette="coolwarm")
+            plt.title(f"Detections per Camera - {scene}")
+            plt.xticks(rotation=45)
+            plt.xlabel("Camera ID")
+            plt.ylabel("Total Detections")
+            plt.show()
+
+            # 5️⃣ Pie Chart: Detections per Camera
+            plt.figure(figsize=(7, 7))
+            plt.pie(detections_per_camera["Total Detections"], labels=detections_per_camera["Camera ID"], 
+                    autopct="%1.1f%%", colors=sns.color_palette("coolwarm", len(detections_per_camera)))
+            plt.title(f"Detection Distribution Across Cameras - {scene}")
+            plt.show()
 
