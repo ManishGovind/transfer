@@ -640,3 +640,110 @@ for scene in  scenelist:
             plt.title(f"Detection Distribution Across Cameras - {scene}")
             plt.show()
 
+## Frames Without Any Person Detected Per Camera"
+
+import os
+import pandas as pd
+import matplotlib.pyplot as plt
+import seaborn as sns
+
+# Path to labels directory
+labels_dir = "/path/to/dataset/labels/"  # Update with actual path
+
+# Get all label files
+label_files = [f for f in os.listdir(labels_dir) if f.endswith(".txt")]
+
+# Dictionary to store frames without detections per camera
+frames_without_detections = {}
+
+# Process each label file
+for label_file in label_files:
+    camera_id = label_file.replace(".txt", "")  # Extract camera ID from filename
+    file_path = os.path.join(labels_dir, label_file)
+    
+    # Read label file (MOT format: frame_id, person_id, bbox_x, bbox_y, width, height, conf, x, y, z)
+    df = pd.read_csv(file_path, header=None)
+    
+    # Rename columns
+    df.columns = ["frame_id", "person_id", "bbox_x", "bbox_y", "width", "height", "conf", "x", "y", "z"]
+    
+    # Get total frames in this camera
+    total_frames = df["frame_id"].max()
+    
+    # Count frames where no person is detected
+    frames_with_detections = df["frame_id"].nunique()
+    frames_without_detections[camera_id] = total_frames - frames_with_detections
+
+# Convert to DataFrame
+frames_df = pd.DataFrame(list(frames_without_detections.items()), columns=["Camera ID", "Frames Without Detections"])
+
+# Sort by Camera ID
+frames_df = frames_df.sort_values(by="Camera ID")
+
+# Plot bar chart
+plt.figure(figsize=(12, 6))
+sns.barplot(x="Camera ID", y="Frames Without Detections", data=frames_df, palette="coolwarm")
+plt.xticks(rotation=90)
+plt.xlabel("Camera ID")
+plt.ylabel("Frames Without Any Detection")
+plt.title("Frames Without Any Person Detected Per Camera")
+plt.grid(axis="y", linestyle="--", alpha=0.7)
+plt.savefig("frames_without_detections_per_camera.png", bbox_inches="tight")
+plt.show()
+
+## Distribution of Average Duration per Person Across Cameras
+
+import os
+import pandas as pd
+import matplotlib.pyplot as plt
+import seaborn as sns
+
+# Path to labels directory
+labels_dir = "/path/to/dataset/labels/"  # Update with actual path
+fps = 10  # Frame rate (10 FPS based on your dataset)
+
+# Get all label files
+label_files = [f for f in os.listdir(labels_dir) if f.endswith(".txt")]
+
+# Dictionary to store duration per person
+person_durations = {}
+
+# Process each label file
+for label_file in label_files:
+    file_path = os.path.join(labels_dir, label_file)
+    
+    # Read label file (MOT format: frame_id, person_id, bbox_x, bbox_y, width, height, conf, x, y, z)
+    df = pd.read_csv(file_path, header=None)
+    
+    # Rename columns
+    df.columns = ["frame_id", "person_id", "bbox_x", "bbox_y", "width", "height", "conf", "x", "y", "z"]
+    
+    # Compute time duration per person
+    for person_id, group in df.groupby("person_id"):
+        first_frame = group["frame_id"].min()
+        last_frame = group["frame_id"].max()
+        duration = (last_frame - first_frame) / fps  # Convert frames to seconds
+        
+        # Store duration in dictionary
+        if person_id in person_durations:
+            person_durations[person_id].append(duration)
+        else:
+            person_durations[person_id] = [duration]
+
+# Compute average duration per person
+avg_durations = {person: sum(durations) / len(durations) for person, durations in person_durations.items()}
+
+# Convert to DataFrame
+duration_df = pd.DataFrame(list(avg_durations.items()), columns=["Person ID", "Average Duration (sec)"])
+
+# Plot histogram of average durations
+plt.figure(figsize=(10, 6))
+sns.histplot(duration_df["Average Duration (sec)"], bins=30, kde=True, color="blue")
+plt.xlabel("Average Duration (seconds)")
+plt.ylabel("Number of People")
+plt.title("Distribution of Average Duration per Person Across Cameras")
+plt.grid(axis="y", linestyle="--", alpha=0.7)
+plt.savefig("average_duration_per_person.png", bbox_inches="tight")
+plt.show()
+
+
